@@ -1,168 +1,355 @@
 # Week 4: Data Persistence Evolution - JDBC to Spring Data JPA
 **Course:** DEV 615 - Advanced Web Programming
-**Duration:** ~5-6 Hours of Content
-**Target Audience:** Postgraduate Students
+**Outline:** JDBC, Hibernate, ORM Mappings, Spring Data JPA, Logging, and Transactions.
 
 ---
 
-## 📚 Module Overview
-This week explores the critical layer of any enterprise application: **Data Persistence**. We will trace the history and evolution of database interaction in Java, starting from low-level JDBC to the automated magic of Spring Data JPA. Understanding the "hard way" (JDBC) is essential to appreciating (and debugging) the "easy way" (Hibernate/JPA).
+## 1. JDBC (Java Database Connectivity)
 
-### Learning Objectives (CLOs Covered: 2, 6)
-- Implement raw **JDBC** connections and handle `SQLException`.
-- Apply the **DAO (Data Access Object)** pattern to decouple business logic from persistence.
-- Understand **ORM (Object-Relational Mapping)** concepts and the **Hibernate** lifecycle (Transient, Persistent, Detached).
-- Configure **Spring ORM** to manage Hibernate Sessions and Transactions.
-- Master **Spring Data JPA** repositories to eliminate boilerplate code.
+### 1.1 Introduction
+JDBC is the standard Java API for database-independent connectivity. It provides methods to query and update data in a database using SQL. While lower-level than ORMs, it offers the highest performance and total control over SQL.
 
----
-
-## 📖 Part 1: The Foundation - JDBC & The DAO Pattern (1.5 Hours)
-
-### 1.1 JDBC Architecture
-**JDBC (Java Database Connectivity)** is the industry standard API for database-independent connectivity between the Java programming language and a wide range of databases.
-
-**Core Components:**
-1.  `DriverManager`: Manages a list of database drivers (e.g., MySQL, H2).
-2.  `Connection`: Represents a session with the database. Expensive to create!
-3.  `PreparedStatement`: Pre-compiled SQL. Protections against **SQL Injection**.
-4.  `ResultSet`: A table of data representing a database result set.
-
-### 1.2 The DAO Pattern
-We never put SQL code inside a Controller or Service. We use the **Data Access Object (DAO)** pattern.
-- **Interface**: Defines *what* we can do (`save`, `findById`).
-- **Implementation**: Defines *how* we do it (JDBC, SQL).
-- **Benefit**: We can switch the implementation (e.g., from MySQL to Oracle, or JDBC to Hibernate) without breaking the Service layer.
-
-**The "Try-With-Resources" Block:**
-Crucial for preventing memory leaks. Java 7+ feature.
+### 1.2 Sample Code: JDBC CRUD
 ```java
-String sql = "INSERT INTO users (name, email) VALUES (?, ?)";
-try (Connection conn = dataSource.getConnection();
-     PreparedStatement ps = conn.prepareStatement(sql)) {
-    ps.setString(1, user.getName());
-    ps.executeUpdate();
-} catch (SQLException e) {
-    throw new RuntimeException("DB Error", e);
-}
-```
+public class JdbcExample {
+    private static final String URL = "jdbc:mysql://localhost:3306/demo_db";
+    private static final String USER = "root";
+    private static final String PASS = "password";
 
----
+    public void saveUser(String name, String email) {
+        String sql = "INSERT INTO users (name, email) VALUES (?, ?)";
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASS);
+             PreparedStatement ps = conn.prepareStatement(sql)) {
+            
+            ps.setString(1, name);
+            ps.setString(2, email);
+            ps.executeUpdate();
+            System.out.println("User saved successfully!");
+            
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
+    }
 
-## 📖 Part 2: The Revolution - Hibernate & ORM (1.5 Hours)
-
-### 2.1 What is ORM?
-**Object-Relational Mapping** allows us to map a Java Class (`User`) directly to a Database Table (`users`).
-- **Impedance Mismatch**: Java has inheritance, polymorphism, and references. SQL has tables, rows, and foreign keys. ORM bridges this gap.
-
-### 2.2 Hibernate Core Concepts
-Hibernate is the most popular ORM framework.
-- **`@Entity`**: Marks a POJO as a database object.
-- **`SessionFactory`**: Heavyweight, created once per app. A factory for Sessions.
-- **`Session`**: Lightweight, not thread-safe. Represents a "Unit of Work". Wraps a JDBC Connection.
-- **`Transaction`**: Atomic unit of work.
-
-### 2.3 HQL (Hibernate Query Language)
-Instead of selecting columns (`SELECT * FROM users`), we select Objects.
-> `FROM User u WHERE u.age > 20`
-
-### 2.4 Pagination (The "Hard" Stuff made Easy)
-Implementing `LIMIT` and `OFFSET` in raw SQL varies by database (MySQL `LIMIT`, Oracle `ROWNUM`). Hibernate abstracts this:
-```java
-Query<User> query = session.createQuery("FROM User", User.class);
-query.setFirstResult(0); // Offset
-query.setMaxResults(10); // Page Size
-List<User> users = query.list();
-```
-
----
-
-## 📖 Part 3: The Integration - Spring ORM & Transaction Management (1 Hour)
-
-### 3.1 Managing the Session
-Manually opening and closing Hibernate sessions (`session.openSession()`, `tx.commit()`) is verbose and error-prone.
-**Spring ORM** provides `LocalSessionFactoryBean` to configure Hibernate in the Spring Context.
-
-### 3.2 Declarative Transaction Management
-Instead of `try-catch-rollback`, we uses **AOP (Aspect Oriented Programming)**.
-- **`@Transactional`**: Annotation that tells Spring: "Wrap this method in a transaction. Commit if successful. Rollback if a RuntimeException occurs."
-
-```java
-@Service
-@Transactional // All methods read/write transactional
-public class UserService {
-    @Autowired
-    private SessionFactory sessionFactory;
-    
-    public void register(User user) {
-        sessionFactory.getCurrentSession().save(user);
-        // No commit() call needed!
+    public void fetchUsers() {
+        String sql = "SELECT * FROM users";
+        try (Connection conn = DriverManager.getConnection(URL, USER, PASS);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(sql)) {
+            
+            while (rs.next()) {
+                System.out.println("ID: " + rs.getInt("id") + ", Name: " + rs.getString("name"));
+            }
+        } catch (SQLException e) {
+            e.printStackTrace();
+        }
     }
 }
 ```
 
 ---
 
-## 📖 Part 4: The Modern Standard - Spring Data JPA (1 Hour)
+## 2. Hibernate Basics
 
-### 4.1 "Boilerplate, Begone!"
-Even with Spring ORM, we write the same DAO methods (`persist`, `find`) over and over.
-**Spring Data JPA** solves this by creating the implementation *for* us at runtime.
+### 2.1 Hibernate vs JDBC
+| Feature | JDBC | Hibernate (ORM) |
+| :--- | :--- | :--- |
+| **SQL** | Manual SQL writing (Select *...) | Generates SQL automatically |
+| **Mapping** | Manual mapping (rs.getString -> obj) | Automatic mapping via Annotations |
+| **Boilerplate** | High (Try-catch, closing resources) | Low (Handled by Session) |
+| **Caching** | No built-in caching | 1st and 2nd level caching |
+| **Portability** | DB specific SQL | DB independent (Dialects) |
 
-### 4.2 JpaRepository
-We simply define an interface:
+### 2.2 Simple CRUD in Hibernate
 ```java
-public interface UserRepository extends JpaRepository<User, Long> {
-    // Magic Method: Spring generates the SQL automatically!
-    List<User> findByNameContaining(String name, Pageable pageable);
+@Entity
+@Table(name = "employees")
+public class Employee {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    private String name;
+}
+
+// Service Logic
+public void hibernateCrud(Employee emp) {
+    Session session = sessionFactory.openSession();
+    Transaction tx = session.beginTransaction();
+    
+    // Create
+    session.save(emp); 
+    
+    // Read
+    Employee loaded = session.get(Employee.class, 1L);
+    
+    // Update
+    loaded.setName("Updated Name");
+    session.update(loaded);
+    
+    // Delete
+    session.delete(loaded);
+    
+    tx.commit();
+    session.close();
 }
 ```
-That's it. No class. No SQL. No HQL.
 
 ---
 
-## 🗣️ Discussion Topic (30 Minutes)
+## 3. ORM Mappings
 
-**Topic:** "The Cost of Abstraction: JDBC vs. Hibernate"
+### 3.1 One-to-One
+One user has exactly one profile.
+```java
+@Entity
+public class User {
+    @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+    private Long id;
+    
+    @OneToOne(cascade = CascadeType.ALL)
+    @JoinColumn(name = "profile_id")
+    private UserProfile profile;
+}
+```
 
-**Prompt:**
-> "Hibernate makes life easy, but it adds overhead. Identify at least two scenarios where you might still prefer raw JDBC over Hibernate/JPA in a modern Spring Boot application. Also, what is the 'N+1 Select Problem' in ORM?"
+**Equivalent SQL Schema**:
+```sql
+CREATE TABLE users (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    profile_id BIGINT UNIQUE,
+    FOREIGN KEY (profile_id) REFERENCES user_profile(id)
+);
+```
 
-**Instructor Answer Key:**
-1.  **Batch Processing**: Inserting 1 million rows is faster in JDBC batching than hydrating 1 million Entities.
-2.  **Complex Reporting**: Highly complex analytical queries with specific SQL optimizations are hard to model in HQL.
-3.  **N+1 Problem**: Fetching a list of `Orders` (1 query), then for each order, Hibernate lazily fetches the `Customer` (N queries). Result: 1 + N queries instead of 1 JOIN.
+### 3.2 Many-to-One / One-to-Many
+Many employees belong to one department.
+```java
+@Entity
+public class Employee {
+    @ManyToOne
+    @JoinColumn(name = "dept_id")
+    private Department department;
+}
+
+@Entity
+public class Department {
+    @Id
+    private Long id;
+    
+    @OneToMany(mappedBy = "department")
+    private List<Employee> employees;
+}
+```
+
+**Equivalent SQL Schema**:
+```sql
+CREATE TABLE department (
+    id BIGINT PRIMARY KEY
+);
+
+CREATE TABLE employees (
+    id BIGINT PRIMARY KEY AUTO_INCREMENT,
+    dept_id BIGINT,
+    FOREIGN KEY (dept_id) REFERENCES department(id)
+);
+```
+
+### 3.3 Many-to-Many
+Many students take many courses.
+```java
+@Entity
+public class Student {
+    @ManyToMany
+    @JoinTable(
+        name = "student_course",
+        joinColumns = @JoinColumn(name = "student_id"),
+        inverseJoinColumns = @JoinColumn(name = "course_id")
+    )
+    private Set<Course> courses;
+}
+```
+
+**Equivalent SQL Schema**:
+```sql
+CREATE TABLE student (id BIGINT PRIMARY KEY);
+CREATE TABLE course (id BIGINT PRIMARY KEY);
+
+-- Join Table
+CREATE TABLE student_course (
+    student_id BIGINT,
+    course_id BIGINT,
+    PRIMARY KEY (student_id, course_id),
+    FOREIGN KEY (student_id) REFERENCES student(id),
+    FOREIGN KEY (course_id) REFERENCES course(id)
+);
+```
+
+### 3.4 Fetching Strategies: Lazy vs Eager
+How data is loaded from the database impacts performance significantly.
+
+#### 1. Lazy Loading (Default for `@OneToMany`, `@ManyToMany`)
+Data is loaded only when you actually access the collection or proxy field.
+- **Proxy**: Hibernate creates a "placeholder" object (Proxy) instead of the real object.
+- **N+1 Problem**: If you fetch N parents and then access a lazy collection for each, you'll trigger N additional queries.
+```java
+@OneToMany(mappedBy = "department", fetch = FetchType.LAZY)
+private List<Employee> employees;
+```
+
+#### 2. Eager Loading (Default for `@ManyToOne`, `@OneToOne`)
+Data is loaded immediately with the parent entity using a JOIN.
+```java
+@ManyToOne(fetch = FetchType.EAGER)
+@JoinColumn(name = "dept_id")
+private Department department;
+```
+
+### 4.4 Practical Example: N+1 Problem & Solution
+**The Problem**:
+```java
+// This triggers 1 query for all employees
+List<Employee> employees = repository.findAll(); 
+
+for (Employee emp : employees) {
+    // This triggers 1 query for EACH employee's department (N queries)
+    System.out.println(emp.getDepartment().getName());
+}
+```
+**The Solution (JOIN FETCH)**:
+```java
+@Query("SELECT e FROM Employee e JOIN FETCH e.department")
+List<Employee> findAllWithDepartments();
+```
+
+#### Why the `FETCH` word is critical:
+- **Normal `JOIN`**: Hibernate joins the table in SQL but **only selects columns for the main entity** (`Employee`). When you access `emp.getDepartment()`, it still thinks the collection is lazy and might trigger another query if not initialized.
+- **`JOIN FETCH`**: Hibernate joins the table **and selects all columns for BOTH entities**. It then populates the `Department` object inside each `Employee` immediately. This is the ultimate fix for N+1.
 
 ---
 
-## 🧪 Laboratory Activity: "The Persistence Evolution" (2 Hours)
+## 5. Hibernate Caching
+Caching reduces database hits by storing objects in memory.
 
-**Scenario**: You will implement the 'save user' and 'search user' features four times to physically feel the difference in developer experience.
+### 5.1 First-Level Cache (Session Level)
+**Example**:
+```java
+Session session = sessionFactory.openSession();
+Employee emp1 = session.get(Employee.class, 1L); // Hits DB
+Employee emp2 = session.get(Employee.class, 1L); // Returns from Cache (No SQL)
+session.close();
+```
 
-### Lab A: Raw JDBC (`demo-servlet`)
-1.  Add `mysql-connector` to `pom.xml`.
-2.  In `UserDaoImpl`, use `DriverManager` to connect.
-3.  Write raw SQL: `INSERT INTO users...`.
-4.  **Observe**: Check the amount of `try-catch` blocks required.
+### 5.2 Second-Level Cache (SessionFactory Level)
+- **Scope**: Shared across multiple sessions.
+- **Behavior**: Optional (needs providers like Ehcache). Useful for data that doesn't change frequently.
 
-### Lab B: Hibernate Core (`demo-servlet` Extended)
-1.  Add `hibernate-core`. Create `hibernate.cfg.xml`.
-2.  Create `HibernateUserDaoImpl`.
-3.  Use `session.save(user)`.
-4.  Implement **Pagination**: Retrieve only records 5-10.
+### 5.3 Query Cache
+- **Scope**: Specifically caches results of specific queries (SQL + Params).
 
-### Lab C: Spring ORM (`demo-spring-annot`)
-1.  Add `spring-orm`.
-2.  Configure `HibernateTransactionManager` in `AppConfig`.
-3.  Add `@Transactional` to `UserService`.
-4.  **Observe**: No manual transaction handling code in Java.
+### 5.4 Persistence Context: Flush vs Commit
+The Persistence Context is Hibernate's internal store of "managed" entities.
+- **Save is not immediate**: When you call `session.save(user)`, Hibernate just adds it to the context. It doesn't hit the DB immediately.
+- **Flush**: Synchronizes the context with the DB (sends SQL). Happens automatically before queries or at the end of a transaction.
+- **Commit**: Makes the changes permanent in the DB.
 
-### Lab D: Spring Data JPA (`demo-spring-boot`)
-1.  Add `spring-boot-starter-data-jpa`.
-2.  **Delete** the DAO implementation entirely.
-3.  Create `UserRepository` interface extending `JpaRepository`.
-4.  Use `PageRequest` to handle pagination effortlessly.
+```java
+entityManager.persist(user); // Entity is managed, but no SQL yet
+entityManager.flush();       // SQL INSERT is sent to DB
+// ... Transaction finishes and commits ...
+```
 
-### Deliverables
-- A table comparing Lines of Code (LOC) for the `save()` method across the 4 implementations.
-- Screenshots of the Pagination result from Lab B or D.
+---
+
+## 6. Spring Data JPA
+Spring Data JPA adds a layer on top of JPA to reduce boilerplate code to zero for standard operations.
+
+```java
+public interface EmployeeRepository extends JpaRepository<Employee, Long> {
+    // Custom finder method based on property name (SELECT * FROM employees WHERE name LIKE %name%)
+    List<Employee> findByNameContaining(String name);
+    
+    // Pagination & Sorting
+    Page<Employee> findAll(Pageable pageable);
+    
+    // Native query
+    @Query(value = "SELECT * FROM employees WHERE email = ?1", nativeQuery = true)
+    Employee findByEmailAddress(String email);
+}
+```
+
+### 6.1 Native vs JPQL Queries
+- **JPQL (@Query)**: Target entities and properties. Database independent.
+  - `SELECT e FROM Employee e WHERE e.name = :name`
+- **Native Query (`nativeQuery = true`)**: Target tables and columns. Database specific (uses raw SQL).
+  - `SELECT * FROM employees WHERE emp_name = :name`
+
+### 6.2 Subqueries in JPQL
+Useful for fetching main items based on attributes of related fields.
+**Example: Fetch users who have a specific profile type.**
+```java
+@Query("SELECT u FROM User u WHERE u.profile.id IN " +
+       "(SELECT p.id FROM UserProfile p WHERE p.type = 'PREMIUM')")
+List<User> findPremiumUsers();
+```
+
+
+---
+
+## 6. Logging and Error Handling
+
+### 6.1 Logging (SLF4J + Logback)
+Never use `System.out.println`. Use a logger.
+```java
+@Slf4j
+@Service
+public class PaymentService {
+    public void process() {
+        log.info("Starting payment...");
+        try {
+            // logic
+        } catch (Exception e) {
+            log.error("Payment failed: {}", e.getMessage());
+        }
+    }
+}
+```
+
+### 6.2 Global Error Handling
+Use `@ControllerAdvice` to handle DB errors globally.
+```java
+@ControllerAdvice
+public class GlobalExceptionHandler {
+    @ExceptionHandler(EntityNotFoundException.class)
+    public ResponseEntity<String> handleNotFound(EntityNotFoundException ex) {
+        return ResponseEntity.status(HttpStatus.NOT_FOUND).body(ex.getMessage());
+    }
+}
+```
+
+---
+
+## 7. Transaction Management
+Transactions ensure **ACID** properties. In Spring, we use `@Transactional`.
+
+### 7.1 Propagation & Isolation
+- **Propagation**: Defines how transactions relate to each other (e.g., `REQUIRED`, `REQUIRES_NEW`).
+- **Isolation**: Defines the data visibility between concurrent transactions (e.g., `READ_COMMITTED`, `SERIALIZABLE`).
+
+```java
+@Service
+public class OrderService {
+    @Transactional(propagation = Propagation.REQUIRED, isolation = Isolation.READ_COMMITTED)
+    public void placeOrder(Order order) {
+        inventoryService.updateCount(order);
+        paymentService.chargeUser(order);
+        // If either fails, the whole transaction rolls back!
+    }
+}
+```
+
+### 7.2 Internal Mechanics: How it Works
+1. **Proxy Pattern**: When you call a `@Transactional` method, you are actually calling a method on a **Spring-generated Proxy** object.
+2. **AOP (Aspect Oriented Programming)**: The proxy starts a transaction before your method runs and commits/rolls back after it finishes.
+3. **Rollback Rules**:
+   - **Runtime Exceptions** (Unchecked): Triggers automatic rollback by default.
+   - **Checked Exceptions**: Does **NOT** trigger rollback unless specified (e.g., `@Transactional(rollbackFor = Exception.class)`).
+
